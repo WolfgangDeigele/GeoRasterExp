@@ -186,7 +186,7 @@ public class Main {
 		});
 	}
 
-	// creates all the input fields
+	// creates every component except the console
 	public static void createTopPanel() {
 		panelInput = new JPanel();
 		panelInput.setLayout(new BorderLayout());
@@ -227,7 +227,6 @@ public class Main {
 		borderPanel3.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 0));
 
 		checkBoxIsRGBImage = new JCheckBox("Georaster hat mehr als 1 Band (z.B. RGB)");
-		// ToolTipManager.sharedInstance().setDismissDelay(60000);
 		checkBoxIsRGBImage.setToolTipText(
 				"<html>Beim Export erhalten manche Grayscale-Georaster fälschlicherweise 3 Bänder.<br>Dies wird automatisch korrigiert wenn der Haken nicht gesetzt wird.</html>");
 		borderPanel3.add(checkBoxIsRGBImage, BorderLayout.LINE_START);
@@ -502,7 +501,7 @@ public class Main {
 			public void actionPerformed(ActionEvent event) {
 				if (!sorted) {
 
-					// custom sorting algorithm
+					// custom sorting algorithm, sorts 1, 2, 8, 12, 40 instead of 1, 12, 2, 40, 8
 					Collections.sort(availableIDSRID, new Comparator<String>() {
 						public int compare(String o1, String o2) {
 							return extractInt(o1) - extractInt(o2);
@@ -514,11 +513,14 @@ public class Main {
 						}
 					});
 
+					// sets the combo-items in sorted state
 					DefaultComboBoxModel model = new DefaultComboBoxModel(availableIDSRID.toArray());
 					comboIDSRID.setModel(model);
 					sorted = true;
 					buttonSort.setToolTipText("Nach Reihenfolge in Datenbank sortieren");
 				} else {
+					
+					// sets the combo-items in default state
 					showSorted = false;
 					checkConnection();
 					retrieveIDs(true);
@@ -530,14 +532,18 @@ public class Main {
 			}
 		});
 
-		// listener for the button to copy the extent to the bounding box
+		// listener for the button to copy the extent of the georaster inside the databse into the bounding box
 		buttonShowExtent.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent event) {
 				try {
+					
+					// connect with database
 					con = DriverManager.getConnection(
 							API + ":" + database + ":" + driver + ":@" + IP + ":" + port + ":" + oracleServiceName,
 							user, pass);
 					checkExportSettings();
+					
+					// select all availabe georasters
 					PreparedStatement ps = con
 							.prepareStatement("SELECT * FROM " + branches + " WHERE " + idTable + " = " + id);
 					ResultSet rs = ps.executeQuery();
@@ -545,6 +551,8 @@ public class Main {
 					rs.next();
 					STRUCT struct = (STRUCT) rs.getObject(rasterProperty);
 					jGeor = new JGeoRaster(struct);
+					
+					// sometimes the spatial extent is set with 8 coordinates, sometimes with 4
 					double[] ext0 = jGeor.getSpatialExtent().getOrdinatesArray();
 					double[] ext = new double[4];
 					if (ext0.length == 18) {
@@ -563,6 +571,7 @@ public class Main {
 					int sourceSrid = srid;
 					int targetSrid = 4326;
 
+					// transform the spatial extent into wgs 84 
 					StringBuilder query = new StringBuilder()
 							.append("select SDO_CS.TRANSFORM(MDSYS.SDO_GEOMETRY(2003, ").append(sourceSrid)
 							.append(", NULL, MDSYS.SDO_ELEM_INFO_ARRAY(1, 1003, 1), ")
@@ -589,6 +598,8 @@ public class Main {
 					}
 
 					con.close();
+					
+					// set the content of the bounding-box
 					BoundingBox bbSet = new BoundingBox();
 					bbSet.setLowerCorner(new Position(ext[0], ext[1]));
 					bbSet.setUpperCorner(new Position(ext[2], ext[3]));
@@ -613,10 +624,13 @@ public class Main {
 				console.append("\n\n");
 				log("Export aus Datenbank", false);
 				try {
+					
+					// read the content of the bounding-box panel
 					log("ID, SRID und Bounding-Box lesen", true);
 					checkExportSettings();
 					log(true);
 
+					// connect with the database
 					log("Verbinde mit Datenbank als User: " + user, true);
 					con = DriverManager.getConnection(
 							API + ":" + database + ":" + driver + ":@" + IP + ":" + port + ":" + oracleServiceName,
@@ -628,6 +642,7 @@ public class Main {
 					ResultSet rs = null;
 					log("SQL Abfrage ausfuehren", true);
 
+					// get georaster with specific id
 					ps = con.prepareStatement(
 							"SELECT " + rasterProperty + " FROM " + branches + " WHERE " + idTable + " = " + id);
 					rs = ps.executeQuery();
@@ -639,6 +654,7 @@ public class Main {
 					jGeoRaster = new JGeoRaster(struct);
 					log(true);
 
+					// transform the bounding-box from wgs 84 into the system from the database
 					log("Transformation von WGS 84 (BoundingBox) zu Raster-System", true);
 					int sourceSrid = 4326;
 					int targetSrid = srid;
@@ -670,7 +686,6 @@ public class Main {
 					log(true);
 
 					// check if the subset is entirely inside the georaster
-					// which is present in the database
 					log("Subset Position überprüfen", true);
 					double[] ordinates = jGeoRaster.getSpatialExtent().getOrdinatesArray();
 					if ((ordinates.length == 18 && (xMin2 < ordinates[0] || yMin2 < ordinates[5] || xMax2 > ordinates[8]
@@ -726,6 +741,7 @@ public class Main {
 					JOptionPane.showMessageDialog(console, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
 				}
 
+				// calculate, where exactly the pixels are located inside the subset
 				long rasterWidthPixel = jGeoRaster.getMetadataObject().getRasterInfo().getDimensionSize(1);
 				long rasterHeightPixel = jGeoRaster.getMetadataObject().getRasterInfo().getDimensionSize(0);
 
@@ -769,6 +785,7 @@ public class Main {
 				xMaxP = subsetEndRow;
 				yMaxP = subsetEndColumn;
 
+				// read from the SRID, weather the reference system unit is feet or meters
 				if (unit.equalsIgnoreCase("m") || unit.contains("meter")) {
 					log("Einheit des Georasters erkannt: Meter", true);
 				} else if (unit.toLowerCase().equalsIgnoreCase("f") || unit.contains("feet") || unit.contains("foot")) {
@@ -786,8 +803,8 @@ public class Main {
 					console.setCaretPosition(console.getDocument().getLength());
 					return;
 				}
-				
-				// this segment is run if the export is tiled
+
+				// this segment runs if the export is tiled
 				if (exportAsTiles) {
 					console.append(" KACHELUNG");
 					if (tileWidth > subsetWidthPixel) {
@@ -903,7 +920,7 @@ public class Main {
 									for (int i = 0; i <= kachelZahlHeight; i++) {
 										for (int j = 0; j <= kachelZahlWidth; j++) {
 											if (i < kachelZahlHeight) {
-												
+
 												// all tiles at the inside
 												if (j < kachelZahlWidth) {
 													img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
@@ -998,7 +1015,8 @@ public class Main {
 													}
 												}
 
-												// last tile at the right bottom corner
+												// last tile at the right bottom
+												// corner
 												else {
 													if (kachelZahlWidth > 0 && kachelZahlHeight > 0) {
 														img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
@@ -1057,8 +1075,9 @@ public class Main {
 											JOptionPane.INFORMATION_MESSAGE);
 								}
 								if (!saveError) {
-									
-									// shows the dialog weather to combine the tiles or not
+
+									// shows the dialog weather to combine the
+									// tiles or not
 									int option = JOptionPane.showConfirmDialog(null,
 											"Georaster in Kacheln exportiert.\nMöchten Sie die Kacheln in einer Datei zusammenführen?\nFür diesen Vorgang müssen GDAL installiert\nund die Systemvariablen entsprechend gesetzt sein.",
 											"GeoRasterExp", JOptionPane.YES_NO_OPTION);
@@ -1076,7 +1095,7 @@ public class Main {
 											Thread.sleep(1000);
 
 											log("tiles.vrt mit GDAL erstellen", true);
-											
+
 											// use command-line and gdalbuildvrt
 											String cmd = "gdalbuildvrt -input_file_list " + dir
 													+ "\\tiles.txt -overwrite " + dir + "\\tiles.vrt";
@@ -1112,8 +1131,9 @@ public class Main {
 													if (ext.equalsIgnoreCase("gif")) {
 														outFormat = "GIF";
 													}
-													
-													// use command-line and gdalwarp
+
+													// use command-line and
+													// gdalwarp
 													cmd = "gdalwarp -overwrite -of " + outFormat + " " + dir
 															+ "\\tiles.vrt " + dir + "\\output." + ext;
 													System.out.println(cmd);
@@ -1163,8 +1183,8 @@ public class Main {
 						return;
 					}
 				} else {
-					
-					// this segment is run if the export is not tiled
+
+					// this segment runs if the export is not tiled
 					console.append(" EINZELBILD");
 					final JFileChooser fileChooser = new JFileChooser(
 							javax.swing.filechooser.FileSystemView.getFileSystemView().getHomeDirectory());
@@ -1231,12 +1251,13 @@ public class Main {
 
 									STRUCT struct = (STRUCT) rs.getObject(1);
 									JGeoRaster jGeoRaster2 = new JGeoRaster(struct);
-									
+
 									GeoRasterImage geoRasterImage = jGeoRaster2.getGeoRasterImageObject();
-									
+
+									// perform the export with subsetting
 									long[] outWindow = new long[4];
 									img = geoRasterImage.getRasterImage(pyramid, xMinP, yMinP, xMaxP, yMaxP, outWindow);
-									
+
 									double[] koord = { ordinates[0] + (subsetStartColumn / factorWidth),
 											ordinates[1] - (subsetEndRow + 1) / factorHeight,
 											ordinates[0] + (subsetEndColumn + 1) / factorWidth,
@@ -1602,7 +1623,7 @@ public class Main {
 		} else {
 			image = img;
 		}
-		
+
 		try {
 			BufferedImage newBufferedImage = new BufferedImage(image.getWidth(), image.getHeight(),
 					BufferedImage.TYPE_BYTE_GRAY);
