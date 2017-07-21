@@ -98,14 +98,6 @@ import oracle.sql.STRUCT;
 @SuppressWarnings({ "unchecked", "rawtypes", "deprecation" })
 public class Main {
 
-	// String defaultAPI = "jdbc";
-	// String defaultDatabase = "oracle";
-	// String defaultDriver = "thin";
-	// String defaultIP = "10.162.246.221";
-	// String defaultPort = "1521";
-	// String defaultOracleServiceName = "orcl";
-	// String defaultUser = "wolfgang";
-	// String defaultPass = "123456";
 	static JTextField idTextField, sridTextField, pyramidTextField;
 	static JPanel panelInput, panelButton, panelDisplay, panelInfoAndProgress;
 	static JLabel infoLabel;
