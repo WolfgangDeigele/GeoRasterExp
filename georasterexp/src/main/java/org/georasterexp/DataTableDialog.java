@@ -20,6 +20,8 @@ import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.WindowConstants;
 
+// This class is used along with the login window to input the database table names
+
 @SuppressWarnings("serial")
 class DataTableDialog extends JDialog implements ActionListener, PropertyChangeListener {
 
@@ -88,7 +90,8 @@ class DataTableDialog extends JDialog implements ActionListener, PropertyChangeL
 				branches = branchesField.getText();
 				idT = idTField.getText();
 				rasterProperty = rasterPropertyField.getText();
-				// String[] values = { branches, rasterProperty, idT };
+
+				// send input values to NetworkDialog class
 				NetworkDialog.setTableData(branches, idT, rasterProperty);
 				dispose();
 			} else if (value.equals("Abbrechen")) {

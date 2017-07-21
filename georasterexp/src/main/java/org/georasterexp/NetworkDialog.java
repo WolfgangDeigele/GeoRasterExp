@@ -3,7 +3,6 @@ package org.georasterexp;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Frame;
-import java.awt.Image;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -13,6 +12,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
+import java.net.URL;
 
 import javax.swing.GroupLayout;
 import javax.swing.ImageIcon;
@@ -25,6 +25,8 @@ import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JTextField;
 import javax.swing.WindowConstants;
+
+// This class shows the login-window
 
 @SuppressWarnings("serial")
 class NetworkDialog extends JDialog implements ActionListener, PropertyChangeListener {
@@ -67,11 +69,8 @@ class NetworkDialog extends JDialog implements ActionListener, PropertyChangeLis
 		passField = new JPasswordField(10);
 
 		bezButton = new JButton();
-		Image img = null;
-
-		img = Toolkit.getDefaultToolkit().getImage("lib\\bezIcon.png");
-
-		bezButton.setIcon(new ImageIcon(img));
+		URL icon = getClass().getResource("resources/bezIcon.png");
+		bezButton.setIcon(new ImageIcon(icon));
 		bezButton.setPreferredSize(new Dimension(30, 21));
 
 		if (showPass) {
@@ -158,6 +157,8 @@ class NetworkDialog extends JDialog implements ActionListener, PropertyChangeLis
 				oracleServiceName = oracleServiceNameField.getText();
 				user = userField.getText();
 				pass = passField.getText();
+				
+				// check if all fields are non-empty
 				if (API.length() == 0 || database.length() == 0 || driver.length() == 0 || IP.length() == 0
 						|| port.length() == 0 || oracleServiceName.length() == 0 || user.length() == 0) {
 					JOptionPane.showMessageDialog(null, "Bitte alle Felder ausfüllen.", "GeoRasterExp",
@@ -169,6 +170,8 @@ class NetworkDialog extends JDialog implements ActionListener, PropertyChangeLis
 					} else {
 						String[] values = { API, database, driver, IP, port, oracleServiceName, user, pass, branches,
 								idT, rasterProperty };
+						
+						// send connection values to the main class
 						Main.setConValues(values);
 						Main.setConnect(true);
 						dispose();

@@ -4,7 +4,6 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Point;
-import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
@@ -18,10 +17,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.net.URL;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -41,6 +40,7 @@ import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultComboBoxModel;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -163,6 +163,10 @@ public class Main {
 	static List<String> tileMergeList = new ArrayList<String>();
 	static String mergeReturn, mergeError;
 	static BufferedReader stdInput1, stdError1, stdInput2, stdError2;
+	static int xMinP, yMinP, xMaxP, yMaxP;
+	static boolean expCancel = false;
+	static boolean saveError = false;
+	static int selectedWidth, selectedHeight;
 
 	public static void main(String[] args) {
 
@@ -288,16 +292,10 @@ public class Main {
 
 	// creates the console to show the output
 	public static void createConsole() {
-		// java.util.logging.Logger.getLogger("org.geotools.image").setLevel(Level.WARNING);
 		LogManager.getLogManager().reset();
-		// Logging.getLogger("org.geotools.image").set
 		console = new JTextArea();
 		console.setEditable(false);
-		// Font f = new Font("Consolas", Font.BOLD, 11);
 		console.setFont(new JLabel().getFont());
-		// printStream = new PrintStream(new CustomOutputStream(console));
-		// System.setOut(printStream);
-		// System.setErr(printStream);
 		scrollPaneConsole = new JScrollPane(console);
 
 		JPanel borderPanel = new JPanel();
@@ -400,13 +398,15 @@ public class Main {
 	// add listeners to various components
 	public static void addListeners() {
 
-		// save window position and size on exit
+		// this segment is run when the gui is getting closed
 		gui.addWindowListener(new WindowAdapter() {
 			@Override
 			public void windowClosing(WindowEvent event) {
 				Dimension windowSize = gui.getSize();
 				Point windowLocation = gui.getLocation();
 				props = new Properties();
+
+				// saves gui size and position
 				try {
 					in = new FileInputStream("GeoRasterExp.properties");
 					props.load(in);
@@ -422,6 +422,8 @@ public class Main {
 					out.close();
 				} catch (Exception e) {
 				}
+
+				// saves login data
 				try {
 					in = new FileInputStream("GeoRasterExp.properties");
 					props.load(in);
@@ -440,6 +442,8 @@ public class Main {
 					out.close();
 				} catch (Exception e) {
 				}
+
+				// saves the values of the bounding-box
 				try {
 					in = new FileInputStream("GeoRasterExp.properties");
 					props.load(in);
@@ -460,6 +464,8 @@ public class Main {
 					out.close();
 				} catch (Exception e) {
 				}
+
+				// saves the database table names
 				try {
 					in = new FileInputStream("GeoRasterExp.properties");
 					props.load(in);
@@ -474,6 +480,8 @@ public class Main {
 					out.close();
 				} catch (Exception e) {
 				}
+
+				// saves the selected values for tiled export
 				try {
 					in = new FileInputStream("GeoRasterExp.properties");
 					props.load(in);
@@ -481,8 +489,9 @@ public class Main {
 				}
 				try {
 					out = new FileOutputStream("GeoRasterExp.properties");
-					props.setProperty("kachelWidth", "" + tileWidth);
-					props.setProperty("kachelHeight", "" + tileHeight);
+					props.setProperty("tileWidth", "" + selectedWidth);
+					props.setProperty("tileHeight", "" + selectedHeight);
+					props.setProperty("tileYesNo", "" + exportAsTiles);
 					props.store(out, null);
 					out.close();
 				} catch (Exception e) {
@@ -500,6 +509,8 @@ public class Main {
 		buttonSort.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent event) {
 				if (!sorted) {
+
+					// custom sorting algorithm
 					Collections.sort(availableIDSRID, new Comparator<String>() {
 						public int compare(String o1, String o2) {
 							return extractInt(o1) - extractInt(o2);
@@ -601,11 +612,12 @@ public class Main {
 			}
 		});
 
-		// listener for exporting the image with tiles
+		// listener for exporting the image
 		buttonExport.addActionListener(new ActionListener() {
 			public void actionPerformed(ActionEvent event) {
 				createWorldFile = true;
 				cancelExport = false;
+				saveError = false;
 				console.append("\n\n");
 				log("Export aus Datenbank", false);
 				try {
@@ -622,20 +634,20 @@ public class Main {
 					jGeoRaster = null;
 					PreparedStatement ps = null;
 					ResultSet rs = null;
+					log("SQL Abfrage ausfuehren", true);
 
-					log("PL/SQL Abfrage ausfuehren", true);
 					ps = con.prepareStatement(
 							"SELECT " + rasterProperty + " FROM " + branches + " WHERE " + idTable + " = " + id);
 					rs = ps.executeQuery();
 					rs.next();
 					log(true);
 
-					log("JGeoRaster vom Export erstellen", true);
+					log("JGeoRaster erstellen", true);
 					STRUCT struct = (STRUCT) rs.getObject(1);
 					jGeoRaster = new JGeoRaster(struct);
 					log(true);
 
-					log("Transformation von WGS84 (BoundingBox) zu Raster-System", true);
+					log("Transformation von WGS 84 (BoundingBox) zu Raster-System", true);
 					int sourceSrid = 4326;
 					int targetSrid = srid;
 
@@ -665,6 +677,8 @@ public class Main {
 					}
 					log(true);
 
+					// check if the subset is entirely inside the georaster
+					// which is present in the database
 					log("Subset Position überprüfen", true);
 					double[] ordinates = jGeoRaster.getSpatialExtent().getOrdinatesArray();
 					if ((ordinates.length == 18 && (xMin2 < ordinates[0] || yMin2 < ordinates[5] || xMax2 > ordinates[8]
@@ -672,8 +686,8 @@ public class Main {
 							|| (ordinates.length == 4 && (xMin2 < ordinates[0] || yMin2 < ordinates[1]
 									|| xMax2 > ordinates[2] || yMax2 > ordinates[3]))) {
 						int value = JOptionPane.showOptionDialog(null,
-								"Der zu exportierender Bereich liegt nicht im vorhandenen Georaster.\nDas exportierte Bild wird bei der Georeferenzierung verzerrt werden.\nMöchten Sie die Bounding-Box automatisch auf die Größe\ndes Georasters zuschneiden?\n ",
-								"Error", JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE, null,
+								"Der zu exportierender Bereich liegt nicht vollständig im vorhandenen Georaster.\nDas exportierte Bild wird bei der Georeferenzierung verzerrt werden.\nMöchten Sie die Bounding-Box automatisch auf die Größe\ndes Georasters zuschneiden?\n ",
+								"Warning", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE, null,
 								new Object[] { "Zuschneiden", "Ignorieren", "Abbrechen" }, "Zuschneiden");
 						if (value == 0) {
 							if (ordinates.length == 18) {
@@ -723,7 +737,7 @@ public class Main {
 				long rasterWidthPixel = jGeoRaster.getMetadataObject().getRasterInfo().getDimensionSize(1);
 				long rasterHeightPixel = jGeoRaster.getMetadataObject().getRasterInfo().getDimensionSize(0);
 
-				double[] ordinates = jGeoRaster.getSpatialExtent().getOrdinatesArray();
+				final double[] ordinates = jGeoRaster.getSpatialExtent().getOrdinatesArray();
 				double rasterWidthKoord = 0;
 				double rasterHeightKoord = 0;
 				if (ordinates.length == 18) {
@@ -735,25 +749,55 @@ public class Main {
 					rasterHeightKoord = Math.abs(ordinates[3] - ordinates[1]);
 				}
 
+				CoordinateReferenceSystem crs = null;
+				try {
+					crs = CRS.decode("EPSG:" + srid, true);
+				} catch (Exception e) {
+
+				}
+				String unit = crs.getCoordinateSystem().getAxis(0).getUnit().toString();
+
 				subsetWidthKoord = xMax2 - xMin2;
 				subsetHeightKoord = yMax2 - yMin2;
 
 				factorWidth = rasterWidthPixel / rasterWidthKoord;
 				factorHeight = rasterHeightPixel / rasterHeightKoord;
 
-				int subsetWidthPixel = (int) Math.round(subsetWidthKoord * factorWidth);
-				int subsetHeightPixel = (int) Math.round(subsetHeightKoord * factorHeight);
+				int subsetWidthPixel = ((int) Math.round(subsetWidthKoord * factorWidth));
+				int subsetHeightPixel = ((int) Math.round(subsetHeightKoord * factorHeight));
 
 				subsetStartRow = (int) Math.round((ordinates[1] - yMax2) * factorHeight);
 				subsetStartColumn = (int) Math.round((xMin2 - ordinates[0]) * factorWidth);
-				log("Subset hat " + subsetWidthPixel + "x" + subsetHeightPixel + " Pixel", true);
-				if (subsetWidthPixel * subsetHeightPixel > maxPixel * maxPixel) {
-					console.append(" KACHELUNG");
-					new KachelDialog(null, tileWidth, tileHeight).setVisible(true);
-					if (!exportAsTiles) {
-						return;
-					}
 
+				final int subsetEndRow = subsetStartRow + subsetWidthPixel;
+				final int subsetEndColumn = subsetStartColumn + subsetWidthPixel;
+
+				xMinP = subsetStartRow;
+				yMinP = subsetStartColumn;
+				xMaxP = subsetEndRow;
+				yMaxP = subsetEndColumn;
+
+				if (unit.equalsIgnoreCase("m") || unit.contains("meter")) {
+					log("Einheit des Georasters erkannt: Meter", true);
+				} else if (unit.toLowerCase().equalsIgnoreCase("f") || unit.contains("feet") || unit.contains("foot")) {
+					log("Einheit des Georasters erkannt: Feet", true);
+				} else {
+					log("Einheit des Georasters nicht erkannt", true);
+				}
+
+				// shows the dialog to select an export as single image or tiled
+				new TileDialog(null, selectedWidth, selectedHeight, factorWidth, factorHeight, subsetWidthPixel,
+						subsetHeightPixel, unit, exportAsTiles).setVisible(true);
+
+				if (expCancel) {
+					console.append(" ABBRUCH");
+					console.setCaretPosition(console.getDocument().getLength());
+					return;
+				}
+				
+				// this segment is run if the export is tiled
+				if (exportAsTiles) {
+					console.append(" KACHELUNG");
 					if (tileWidth > subsetWidthPixel) {
 						tileWidth = subsetWidthPixel;
 					}
@@ -761,43 +805,61 @@ public class Main {
 						tileHeight = subsetHeightPixel;
 					}
 
-					if (tileExtension.equalsIgnoreCase("tif")) {
-						int option = showTiffSpeichernInfo();
-						if (!(option == JOptionPane.OK_OPTION)) {
-							return;
-						}
-						if (radio1.isSelected()) {
-							createWorldFile = false;
-						}
-						if (radio1.isSelected() || radio3.isSelected()) {
-							saveTifAsGeotiff = true;
-						}
-					}
-
 					JFileChooser chooser = new JFileChooser(
 							javax.swing.filechooser.FileSystemView.getFileSystemView().getHomeDirectory());
+
+					FileNameExtensionFilter tifFilter = new FileNameExtensionFilter("Tagged Image File Format (.tif)",
+							"tif");
+					FileNameExtensionFilter pngFilter = new FileNameExtensionFilter("Portable Network Graphic (.png)",
+							"png");
+					FileNameExtensionFilter jpgFilter = new FileNameExtensionFilter("JPEG (.jpg)", "jpg");
+					FileNameExtensionFilter bmpFilter = new FileNameExtensionFilter("Bitmap (.bmp)", "bmp");
+					FileNameExtensionFilter gifFilter = new FileNameExtensionFilter(
+							"Graphics Interchange Format (.gif)", "gif");
+					chooser.addChoosableFileFilter(tifFilter);
+					chooser.addChoosableFileFilter(pngFilter);
+					chooser.addChoosableFileFilter(jpgFilter);
+					chooser.addChoosableFileFilter(bmpFilter);
+					chooser.addChoosableFileFilter(gifFilter);
+					chooser.setFileFilter(tifFilter);
+
 					chooser.setDialogTitle("Ordner wählen");
 					chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
 					chooser.setAcceptAllFileFilterUsed(false);
 					final String dir;
 					if (chooser.showOpenDialog(gui) == JFileChooser.APPROVE_OPTION) {
 
-						// dir = chooser.getCurrentDirectory().toString();
+						FileFilter choosedFilter = chooser.getFileFilter();
+						ext = ((FileNameExtensionFilter) choosedFilter).getExtensions()[0];
+
+						if (ext.equalsIgnoreCase("tif")) {
+							int option = showTiffSpeichernInfo();
+							if (!(option == JOptionPane.OK_OPTION)) {
+								return;
+							}
+							if (radio1.isSelected()) {
+								createWorldFile = false;
+							}
+							if (radio1.isSelected() || radio3.isSelected()) {
+								saveTifAsGeotiff = true;
+							}
+						}
+
 						dir = chooser.getSelectedFile().toString();
 
 						final int kachelZahlWidth = (int) Math.floor(subsetWidthPixel / tileWidth);
 						final int kachelZahlHeight = (int) Math.floor(subsetHeightPixel / tileHeight);
-						final int kachelRestWidthPixel = (int) subsetWidthPixel - (kachelZahlWidth * tileWidth);
-						final int kachelRestHeightPixel = (int) subsetHeightPixel - (kachelZahlHeight * tileHeight);
+						final int tileRestWidthPixel = (int) subsetWidthPixel - (kachelZahlWidth * tileWidth);
+						final int tileRestHeightPixel = (int) subsetHeightPixel - (kachelZahlHeight * tileHeight);
 
 						totalTileCount = kachelZahlWidth * kachelZahlHeight;
-						if (kachelRestWidthPixel > 0) {
+						if (tileRestWidthPixel > 0) {
 							totalTileCount = totalTileCount + kachelZahlHeight;
 						}
-						if (kachelRestHeightPixel > 0) {
+						if (tileRestHeightPixel > 0) {
 							totalTileCount = totalTileCount + kachelZahlWidth;
 						}
-						if (kachelRestWidthPixel > 0 && kachelRestHeightPixel > 0) {
+						if (tileRestWidthPixel > 0 && tileRestHeightPixel > 0) {
 							totalTileCount++;
 						}
 						progressCounter = 0;
@@ -806,9 +868,9 @@ public class Main {
 
 						infoLabel.setText("<html>Anzahl an Kacheln: " + totalTileCount + "<br> <br> </html>");
 
+						// timer for showing the time while exporting
 						int interval = 1000;
 						timer = new Timer(interval, new ActionListener() {
-							@Override
 							public void actionPerformed(ActionEvent e) {
 								timeCounter++;
 								long remainingTime = (int) (((double) timeCounter / (double) progressCounter)
@@ -821,7 +883,6 @@ public class Main {
 						});
 
 						buttonCancelExport.setEnabled(true);
-
 						worker = new Thread() {
 							public void run() {
 								try {
@@ -831,8 +892,6 @@ public class Main {
 
 									int aktRow = subsetStartRow;
 									int aktColumn = subsetStartColumn;
-									aktRow = subsetStartRow;
-									aktColumn = subsetStartColumn;
 
 									con = DriverManager.getConnection(API + ":" + database + ":" + driver + ":@" + IP
 											+ ":" + port + ":" + oracleServiceName, user, pass);
@@ -848,19 +907,26 @@ public class Main {
 									GeoRasterImage geoRasterImage = jGeoRaster2.getGeoRasterImageObject();
 									long[] outWindow = new long[4];
 
+									// iterates over all tiles
 									for (int i = 0; i <= kachelZahlHeight; i++) {
 										for (int j = 0; j <= kachelZahlWidth; j++) {
 											if (i < kachelZahlHeight) {
-
-												// Alle Kacheln im Inneren
+												
+												// all tiles at the inside
 												if (j < kachelZahlWidth) {
 													img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
 															aktRow + tileHeight - 1, aktColumn + tileWidth - 1,
 															outWindow);
 													tileMergeList.add(i + "x" + j + ".tif");
-													saveImage(new File(dir + "\\" + i + "x" + j), img, tileExtension,
-															createWorldFile,
-															pix2koord(aktRow, aktColumn, tileHeight, tileWidth));
+
+													double[] koord = { ordinates[0] + (aktColumn / factorWidth),
+															ordinates[1] - (aktRow + tileHeight) / factorHeight,
+															ordinates[0] + (aktColumn + tileWidth) / factorWidth,
+															ordinates[1] - aktRow / factorHeight };
+
+													saveImage(new File(dir + "\\" + i + "x" + j), img, ext,
+															createWorldFile, koord);
+
 													progressCounter++;
 													progressBar.setValue((int) ((double) progressCounter
 															/ (double) totalTileCount * 100));
@@ -875,74 +941,100 @@ public class Main {
 													}
 												}
 
-												// Alle Kacheln am rechten Rand
+												// all tiles at the right border
 												else {
-													img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
-															aktRow + tileHeight - 1,
-															aktColumn + kachelRestWidthPixel - 1, outWindow);
-													tileMergeList.add(i + "x" + j + ".tif");
-													saveImage(new File(dir + "\\" + i + "x" + j), img, tileExtension,
-															createWorldFile, pix2koord(aktRow, aktColumn, tileHeight,
-																	kachelRestWidthPixel));
-													progressCounter++;
-													progressBar.setValue((int) ((double) progressCounter
-															/ (double) totalTileCount * 100));
-													if (cancelExport) {
-														con.close();
-														ps.close();
-														rs.close();
-														progressBar.setVisible(false);
-														infoLabel.setText("<html> <br> <br> <br></html>");
-														buttonCancelExport.setEnabled(false);
-														return;
+													if (kachelZahlWidth > 0) {
+														img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
+																aktRow + tileHeight - 1,
+																aktColumn + tileRestWidthPixel - 1, outWindow);
+														tileMergeList.add(i + "x" + j + ".tif");
+
+														double[] koord = { ordinates[0] + (aktColumn / factorWidth),
+																ordinates[1] - (aktRow + tileHeight) / factorHeight,
+																ordinates[0] + (aktColumn + tileRestWidthPixel)
+																		/ factorWidth,
+																ordinates[1] - aktRow / factorHeight };
+
+														saveImage(new File(dir + "\\" + i + "x" + j), img, ext,
+																createWorldFile, koord);
+
+														progressCounter++;
+														progressBar.setValue((int) ((double) progressCounter
+																/ (double) totalTileCount * 100));
+														if (cancelExport) {
+															con.close();
+															ps.close();
+															rs.close();
+															progressBar.setVisible(false);
+															infoLabel.setText("<html> <br> <br> <br></html>");
+															buttonCancelExport.setEnabled(false);
+															return;
+														}
 													}
 												}
 											}
 
-											// Alle Kacheln am unteren Rand
+											// all tiles at the bottom border
 											else {
 												if (j < kachelZahlWidth) {
-													img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
-															aktRow + kachelRestHeightPixel - 1,
-															aktColumn + tileWidth - 1, outWindow);
-													tileMergeList.add(i + "x" + j + ".tif");
-													saveImage(new File(dir + "\\" + i + "x" + j), img, tileExtension,
-															createWorldFile, pix2koord(aktRow, aktColumn,
-																	kachelRestHeightPixel, tileWidth));
-													progressCounter++;
-													progressBar.setValue((int) ((double) progressCounter
-															/ (double) totalTileCount * 100));
-													if (cancelExport) {
-														con.close();
-														ps.close();
-														rs.close();
-														progressBar.setVisible(false);
-														infoLabel.setText("<html> <br> <br> <br></html>");
-														buttonCancelExport.setEnabled(false);
-														return;
+													if (kachelZahlHeight > 0) {
+														img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
+																aktRow + tileRestHeightPixel - 1,
+																aktColumn + tileWidth - 1, outWindow);
+														tileMergeList.add(i + "x" + j + ".tif");
+
+														double[] koord = { ordinates[0] + (aktColumn / factorWidth),
+																ordinates[1]
+																		- (aktRow + tileRestHeightPixel) / factorHeight,
+																ordinates[0] + (aktColumn + tileWidth) / factorWidth,
+																ordinates[1] - aktRow / factorHeight };
+
+														saveImage(new File(dir + "\\" + i + "x" + j), img, ext,
+																createWorldFile, koord);
+														progressCounter++;
+														progressBar.setValue((int) ((double) progressCounter
+																/ (double) totalTileCount * 100));
+														if (cancelExport) {
+															con.close();
+															ps.close();
+															rs.close();
+															progressBar.setVisible(false);
+															infoLabel.setText("<html> <br> <br> <br></html>");
+															buttonCancelExport.setEnabled(false);
+															return;
+														}
 													}
 												}
 
-												// Die Kachel rechts unten
+												// last tile at the right bottom corner
 												else {
-													img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
-															aktRow + kachelRestHeightPixel - 1,
-															aktColumn + kachelRestWidthPixel - 1, outWindow);
-													tileMergeList.add(i + "x" + j + ".tif");
-													saveImage(new File(dir + "\\" + i + "x" + j), img, tileExtension,
-															createWorldFile, pix2koord(aktRow, aktColumn,
-																	kachelRestHeightPixel, kachelRestWidthPixel));
-													progressCounter++;
-													progressBar.setValue((int) ((double) progressCounter
-															/ (double) totalTileCount * 100));
-													if (cancelExport) {
-														con.close();
-														ps.close();
-														rs.close();
-														progressBar.setVisible(false);
-														infoLabel.setText("<html> <br> <br> <br></html>");
-														buttonCancelExport.setEnabled(false);
-														return;
+													if (kachelZahlWidth > 0 && kachelZahlHeight > 0) {
+														img = geoRasterImage.getRasterImage(pyramid, aktRow, aktColumn,
+																aktRow + tileRestHeightPixel - 1,
+																aktColumn + tileRestWidthPixel - 1, outWindow);
+														tileMergeList.add(i + "x" + j + ".tif");
+
+														double[] koord = { ordinates[0] + (aktColumn / factorWidth),
+																ordinates[1]
+																		- (aktRow + tileRestHeightPixel) / factorHeight,
+																ordinates[0] + (aktColumn + tileRestWidthPixel)
+																		/ factorWidth,
+																ordinates[1] - aktRow / factorHeight };
+
+														saveImage(new File(dir + "\\" + i + "x" + j), img, ext,
+																createWorldFile, koord);
+														progressCounter++;
+														progressBar.setValue((int) ((double) progressCounter
+																/ (double) totalTileCount * 100));
+														if (cancelExport) {
+															con.close();
+															ps.close();
+															rs.close();
+															progressBar.setVisible(false);
+															infoLabel.setText("<html> <br> <br> <br></html>");
+															buttonCancelExport.setEnabled(false);
+															return;
+														}
 													}
 												}
 											}
@@ -960,101 +1052,10 @@ public class Main {
 									buttonCancelExport.setEnabled(false);
 									infoLabel.setText(
 											"<html>Anzahl an Kacheln: " + totalTileCount + "<br>Verstrichene Zeit: "
-													+ timeCounter + "<br>Verbleibende Zeit: 0s</html>");
-
-									int option = JOptionPane.showConfirmDialog(null,
-											"Georaster in Kacheln exportiert.\nWollen Sie die Kacheln in einer Datei zusammenführen?\nFür diesen Vorgang muss GDAL installiert,\nund die Systemvariablen entsprechend gesetzt sein.",
-											"GeoRasterExp", JOptionPane.YES_NO_OPTION);
-									if (option == JOptionPane.YES_OPTION) {
-										log("tiles.txt mit Liste aller Kacheln erstellen", true);
-										FileWriter writer = new FileWriter(dir + "\\tiles.txt");
-										for (String str : tileMergeList) {
-											writer.write(dir + "\\" + str);
-											writer.write(System.lineSeparator());
-										}
-										writer.close();
-										log(true);
-
-										Thread.sleep(1000);
-
-										log("tiles.vrt mit GDAL erstellen", true);
-										String cmd = "gdalbuildvrt -input_file_list " + dir + "\\tiles.txt -overwrite "
-												+ dir + "\\tiles.vrt";
-										System.out.println(cmd);
-
-										Process process = Runtime.getRuntime().exec(cmd);
-										stdInput1 = new BufferedReader(new InputStreamReader(process.getInputStream()));
-
-										stdError1 = new BufferedReader(new InputStreamReader(process.getErrorStream()));
-
-										String sE = null;
-										while ((sE = stdError1.readLine()) != null) {
-											System.out.println(sE);
-											if (sE.contains("gdalbuildvrt")) {
-												log(false);
-												JOptionPane.showMessageDialog(errorPanel,
-														"GDAL ist nicht installiert oder kann nicht gefunden werden.",
-														"GeoRasterExp", JOptionPane.ERROR_MESSAGE);
-												return;
-											}
-										}
-
-										String sI = null;
-										while ((sI = stdInput1.readLine()) != null) {
-											System.out.println(sI);
-											if (sI.contains(
-													"0...10...20...30...40...50...60...70...80...90...100 - done.")) {
-												log(true);
-												log("Kacheln anhand von tiles.vrt zusammenführen", true);
-												String outFormat = null;
-												if(tileExtension.equalsIgnoreCase("tif")){
-													outFormat = "GTiff";
-												}
-												cmd = "gdalwarp -overwrite -of " + outFormat + " " + dir
-														+ "\\tiles.vrt " + dir + "\\output." + tileExtension;
-												System.out.println(cmd);
-
-												process = Runtime.getRuntime().exec(cmd);
-												stdInput2 = new BufferedReader(
-														new InputStreamReader(process.getInputStream()));
-
-												stdError2 = new BufferedReader(
-														new InputStreamReader(process.getErrorStream()));
-
-												String sE2 = null;
-												while ((sE2 = stdError2.readLine()) != null) {
-													System.out.println(sE2);
-													if (sE2.contains("gdalwarp")) {
-														log(false);
-														JOptionPane.showMessageDialog(errorPanel,
-																"Beim Zusammenführen ist ein Fehler aufgetreten.\nMöglichwerweise ist GDAL nicht korrekt installiert.",
-																"GeoRasterExp", JOptionPane.ERROR_MESSAGE);
-														return;
-													}
-												}
-
-												String sI2 = null;
-												while ((sI2 = stdInput2.readLine()) != null) {
-													System.out.println(sI2);
-													if (sI2.contains(
-															"0...10...20...30...40...50...60...70...80...90...100 - done.")) {
-														log(true);
-														console.append(
-																"\n       -- Kacheln zusammengeführt unter:\n           "
-																		+ dir + "\\output.tif");
-														console.setCaretPosition(console.getDocument().getLength());
-														JOptionPane.showMessageDialog(errorPanel,
-																"Georaster exportiert und Kacheln zusammengeführt.",
-																"GeoRasterExp", JOptionPane.INFORMATION_MESSAGE);
-													}
-												}
-											}
-										}
-									} else {
-										return;
-									}
+													+ s2t(timeCounter) + "<br>Verbleibende Zeit: 0s</html>");
 
 								} catch (Exception e) {
+									e.printStackTrace();
 									log(false);
 									progressBar.setVisible(false);
 									timer.stop();
@@ -1062,6 +1063,102 @@ public class Main {
 									JOptionPane.showMessageDialog(errorPanel,
 											"Bei der Kachelung ist ein Fehler aufgetreten.", "Error",
 											JOptionPane.INFORMATION_MESSAGE);
+								}
+								if (!saveError) {
+									
+									// shows the dialog weather to combine the tiles or not
+									int option = JOptionPane.showConfirmDialog(null,
+											"Georaster in Kacheln exportiert.\nMöchten Sie die Kacheln in einer Datei zusammenführen?\nFür diesen Vorgang müssen GDAL installiert\nund die Systemvariablen entsprechend gesetzt sein.",
+											"GeoRasterExp", JOptionPane.YES_NO_OPTION);
+									if (option == JOptionPane.YES_OPTION) {
+										try {
+											log("tiles.txt mit Liste aller Kacheln erstellen", true);
+											FileWriter writer = new FileWriter(dir + "\\tiles.txt");
+											for (String str : tileMergeList) {
+												writer.write(dir + "\\" + str);
+												writer.write(System.lineSeparator());
+											}
+											writer.close();
+											log(true);
+
+											Thread.sleep(1000);
+
+											log("tiles.vrt mit GDAL erstellen", true);
+											
+											// use command-line and gdalbuildvrt
+											String cmd = "gdalbuildvrt -input_file_list " + dir
+													+ "\\tiles.txt -overwrite " + dir + "\\tiles.vrt";
+											System.out.println(cmd);
+
+											Process process = Runtime.getRuntime().exec(cmd);
+											stdInput1 = new BufferedReader(
+													new InputStreamReader(process.getInputStream()));
+
+											stdError1 = new BufferedReader(
+													new InputStreamReader(process.getErrorStream()));
+
+											String sI = null;
+											while ((sI = stdInput1.readLine()) != null) {
+												System.out.println(sI);
+												if (sI.contains(
+														"0...10...20...30...40...50...60...70...80...90...100 - done.")) {
+													log(true);
+													log("Kacheln anhand von tiles.vrt zusammenführen", true);
+													String outFormat = null;
+													if (ext.equalsIgnoreCase("tif")) {
+														outFormat = "GTiff";
+													}
+													if (ext.equalsIgnoreCase("png")) {
+														outFormat = "PNG";
+													}
+													if (ext.equalsIgnoreCase("jpg")) {
+														outFormat = "JPEG";
+													}
+													if (ext.equalsIgnoreCase("bmp")) {
+														outFormat = "BMP";
+													}
+													if (ext.equalsIgnoreCase("gif")) {
+														outFormat = "GIF";
+													}
+													
+													// use command-line and gdalwarp
+													cmd = "gdalwarp -overwrite -of " + outFormat + " " + dir
+															+ "\\tiles.vrt " + dir + "\\output." + ext;
+													System.out.println(cmd);
+
+													process = Runtime.getRuntime().exec(cmd);
+													stdInput2 = new BufferedReader(
+															new InputStreamReader(process.getInputStream()));
+
+													stdError2 = new BufferedReader(
+															new InputStreamReader(process.getErrorStream()));
+
+													String sI2 = null;
+													while ((sI2 = stdInput2.readLine()) != null) {
+														System.out.println(sI2);
+														if (sI2.contains(
+																"0...10...20...30...40...50...60...70...80...90...100 - done.")) {
+															log(true);
+															console.append(
+																	"\n       -- Kacheln zusammengeführt unter:\n           "
+																			+ dir + "\\output.tif");
+															console.setCaretPosition(console.getDocument().getLength());
+															JOptionPane.showMessageDialog(errorPanel,
+																	"Georaster exportiert und Kacheln zusammengeführt.",
+																	"GeoRasterExp", JOptionPane.INFORMATION_MESSAGE);
+														}
+													}
+												}
+											}
+										} catch (Exception e) {
+											e.printStackTrace();
+											JOptionPane.showMessageDialog(errorPanel,
+													"GDAL ist nicht installiert oder kann nicht gefunden werden.\nStellen Sie sicher, dass die Systemvariablen richtig gesetzt sind\nund testen Sie in der Windows-Commandline\ndie Befehle 'gdalbuildvrt' und 'gdalwarp'",
+													"GeoRasterExp", JOptionPane.ERROR_MESSAGE);
+										}
+									}
+								} else {
+									return;
 								}
 
 							}
@@ -1073,9 +1170,10 @@ public class Main {
 					} else {
 						return;
 					}
-
-				} else { // Export ist als einzelne Datei möglich
-					log(true);
+				} else {
+					
+					// this segment is run if the export is not tiled
+					console.append(" EINZELBILD");
 					final JFileChooser fileChooser = new JFileChooser(
 							javax.swing.filechooser.FileSystemView.getFileSystemView().getHomeDirectory());
 
@@ -1115,7 +1213,13 @@ public class Main {
 							}
 						}
 
-						// buttonCancelExport.setEnabled(true);
+						int interval = 1000;
+						timer = new Timer(interval, new ActionListener() {
+							public void actionPerformed(ActionEvent e) {
+								timeCounter++;
+								infoLabel.setText("Verstrichene Zeit: " + s2t(timeCounter));
+							}
+						});
 
 						worker = new Thread() {
 							public void run() {
@@ -1135,44 +1239,60 @@ public class Main {
 
 									STRUCT struct = (STRUCT) rs.getObject(1);
 									JGeoRaster jGeoRaster2 = new JGeoRaster(struct);
-
+									
 									GeoRasterImage geoRasterImage = jGeoRaster2.getGeoRasterImageObject();
+									
 									long[] outWindow = new long[4];
-
-									img = geoRasterImage.getRasterImage(pyramid, geom, outWindow);
-
-									double[] koord = { xMin2, yMin2, xMax2, yMax2 };
+									img = geoRasterImage.getRasterImage(pyramid, xMinP, yMinP, xMaxP, yMaxP, outWindow);
+									
+									double[] koord = { ordinates[0] + (subsetStartColumn / factorWidth),
+											ordinates[1] - (subsetEndRow + 1) / factorHeight,
+											ordinates[0] + (subsetEndColumn + 1) / factorWidth,
+											ordinates[1] - subsetStartRow / factorHeight };
 
 									log(true);
 
 									saveImage(fileChooser.getSelectedFile(), img, ext, createWorldFile, koord);
+
 									console.append("\n       -- Export gespeichert unter:\n           "
 											+ fileChooser.getSelectedFile() + "." + ext);
 									console.setCaretPosition(console.getDocument().getLength());
 									progressBar.setIndeterminate(false);
 									progressBar.setVisible(false);
 									buttonCancelExport.setEnabled(false);
-									JOptionPane.showMessageDialog(errorPanel, "Georaster exportiert!", "GeoRasterExp",
-											JOptionPane.INFORMATION_MESSAGE);
+									timer.stop();
+									infoLabel.setText("Verstrichene Zeit: " + s2t(timeCounter));
+									if (!saveError) {
+										JOptionPane.showMessageDialog(errorPanel, "Georaster exportiert!",
+												"GeoRasterExp", JOptionPane.INFORMATION_MESSAGE);
+									}
 								} catch (Exception e) {
+									log(false);
+									log(e.getMessage(), false);
 									e.printStackTrace();
 									log(false);
 									progressBar.setIndeterminate(false);
 									progressBar.setVisible(false);
 									buttonCancelExport.setEnabled(false);
+									timer.stop();
+									infoLabel.setText("Verstrichene Zeit: " + s2t(timeCounter));
+
 								}
 							}
 						};
+
+						timer.start();
 						worker.start();
 
 					} else {
 						return;
 					}
-				}
-				try {
-					con.close();
-				} catch (Exception e) {
-					e.printStackTrace();
+					// }
+					try {
+						con.close();
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
 				}
 			}
 		});
@@ -1294,8 +1414,9 @@ public class Main {
 			in = new FileInputStream("GeoRasterExp.properties");
 			props = new Properties();
 			props.load(in);
-			tileWidth = Integer.parseInt(props.getProperty("kachelWidth"));
-			tileHeight = Integer.parseInt(props.getProperty("kachelHeight"));
+			selectedWidth = Integer.parseInt(props.getProperty("tileWidth"));
+			selectedHeight = Integer.parseInt(props.getProperty("tileHeight"));
+			exportAsTiles = Boolean.parseBoolean(props.getProperty("tileYesNo"));
 			in.close();
 		} catch (Exception e) {
 		}
@@ -1318,7 +1439,8 @@ public class Main {
 	// set window settings
 	public static void setWindowSettings() {
 		gui.setLayout(new BorderLayout());
-		gui.setIconImage(Toolkit.getDefaultToolkit().getImage("lib\\GeoRasterExp128.png"));
+		URL icon = Main.class.getResource("resources/GeoRasterExp128.png");
+		gui.setIconImage(new ImageIcon(icon).getImage());
 		gui.setSize(width, height);
 		gui.setLocation(posX, posY);
 		gui.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
@@ -1405,7 +1527,7 @@ public class Main {
 		}
 	}
 
-	// retrieves the available IDs
+	// retrieves the available IDs from the database
 	public static void retrieveIDs(boolean sortCall) {
 		if (connect) {
 			int i = 0;
@@ -1460,14 +1582,14 @@ public class Main {
 		}
 	}
 
-	// receives the width and heght for the tiles
-	public static void setExpPix(int width, int height, String ext, boolean jaNein) {
-
-		exportAsTiles = jaNein;
-		if (jaNein) {
+	// receives the input values for tiled export
+	public static void setIfTileWidthHeight(int width, int height, int selWidth, int selHeight, boolean tileYesNo) {
+		exportAsTiles = tileYesNo;
+		if (tileYesNo) {
 			tileWidth = width;
 			tileHeight = height;
-			tileExtension = ext;
+			selectedWidth = selWidth;
+			selectedHeight = selHeight;
 		}
 	}
 
@@ -1488,12 +1610,13 @@ public class Main {
 		} else {
 			image = img;
 		}
-
+		
 		try {
 			BufferedImage newBufferedImage = new BufferedImage(image.getWidth(), image.getHeight(),
 					BufferedImage.TYPE_BYTE_GRAY);
 			newBufferedImage.createGraphics().drawImage(convertRenderedImage(image), 0, 0, Color.BLACK, null);
 			BufferedImage image2;
+
 			if (!checkBoxIsRGBImage.isSelected()) {
 				image2 = newBufferedImage;
 			} else {
@@ -1501,59 +1624,59 @@ public class Main {
 			}
 
 			if (!extension.equalsIgnoreCase("tif")) {
-				try {
-					if (extension.equalsIgnoreCase("png")) {
-						ImageIO.write(convertRenderedImage(image2), "png", file);
-					}
-					if (extension.equalsIgnoreCase("jpg")) {
-						ImageIO.write(convertRenderedImage(image2), "jpg", file);
-					}
-					if (extension.equalsIgnoreCase("bmp")) {
-						ImageIO.write(convertRenderedImage(image2), "bmp", file);
-					}
-					if (extension.equalsIgnoreCase("gif")) {
-						ImageIO.write(convertRenderedImage(image2), "gif", file);
-					}
-				} catch (IOException e) {
-					e.printStackTrace();
+				if (extension.equalsIgnoreCase("png")) {
+					ImageIO.write(convertRenderedImage(image2), "png", file);
+				}
+				if (extension.equalsIgnoreCase("jpg")) {
+					log(file.getAbsolutePath(), false);
+					log(convertRenderedImage(image2).getWidth() + "", false);
+					ImageIO.write(convertRenderedImage(image2), "jpg", file);
+					log("x" + convertRenderedImage(image2).getHeight(), false);
+				}
+				if (extension.equalsIgnoreCase("bmp")) {
+					ImageIO.write(convertRenderedImage(image2), "bmp", file);
+				}
+				if (extension.equalsIgnoreCase("gif")) {
+					ImageIO.write(convertRenderedImage(image2), "gif", file);
 				}
 				System.out.println("Exportiertes Georaster gespeichert unter:\n      " + file.getAbsolutePath());
 			}
+
 			if (extension.equalsIgnoreCase("tif")) {
 
-				try {
-					if (saveTifAsGeotiff) {
-						GridCoverageFactory gcf = new GridCoverageFactory();
-						CoordinateReferenceSystem finalCRS = null;
-						finalCRS = CRS.decode("EPSG:" + srid, true); // Info
-						Envelope2D finalEnvelope = new Envelope2D(finalCRS, xMin, yMin, xMax - xMin, yMax - yMin);
-						// creating final coverage
-						GridCoverage cov = gcf.create("coverage", image, finalEnvelope);
-						GridCoverage2D cov2d = (GridCoverage2D) Operations.DEFAULT.resample(cov, finalCRS);
-						CoverageProcessor processor = new CoverageProcessor(null);
-						ParameterValueGroup params = processor.getOperation("Resample").getParameters();
-						params.parameter("CoordinateReferenceSystem").setValue(finalCRS);
-						params.parameter("Source").setValue(cov2d);
-						cov2d = (GridCoverage2D) processor.doOperation(params);
-						GeoTiffWriter gtw = new GeoTiffWriter(file);
-						gtw.write(cov2d,
-								(GeneralParameterValue[]) params.values().toArray(new GeneralParameterValue[1]));
-						gtw.dispose();
-						cov2d.dispose(true);
-					}
-					if (!saveTifAsGeotiff) {
-						ImageIO.write(image2, "tif", file);
-					}
-					if (createWorldFile) {
-						saveWorldFile(file, image2, xMin, yMin, xMax, yMax);
-					}
-				} catch (Exception e) {
+				if (saveTifAsGeotiff) {
+					GridCoverageFactory gcf = new GridCoverageFactory();
+					CoordinateReferenceSystem finalCRS = null;
+					finalCRS = CRS.decode("EPSG:" + srid, true); // Info
+					Envelope2D finalEnvelope = new Envelope2D(finalCRS, xMin, yMin, xMax - xMin, yMax - yMin);
+					// creating final coverage
+					GridCoverage cov = gcf.create("coverage", image, finalEnvelope);
+					GridCoverage2D cov2d = (GridCoverage2D) Operations.DEFAULT.resample(cov, finalCRS);
+					CoverageProcessor processor = new CoverageProcessor(null);
+					ParameterValueGroup params = processor.getOperation("Resample").getParameters();
+					params.parameter("CoordinateReferenceSystem").setValue(finalCRS);
+					params.parameter("Source").setValue(cov2d);
+					cov2d = (GridCoverage2D) processor.doOperation(params);
+					GeoTiffWriter gtw = new GeoTiffWriter(file);
+					gtw.write(cov2d, (GeneralParameterValue[]) params.values().toArray(new GeneralParameterValue[1]));
+					gtw.dispose();
+					cov2d.dispose(true);
+				}
+				if (!saveTifAsGeotiff) {
+					ImageIO.write(image2, "tif", file);
+				}
+				if (createWorldFile) {
+					saveWorldFile(file, image2, xMin, yMin, xMax, yMax);
 				}
 			}
 			if (createWorldFile) {
 				saveWorldFile(file, image2, xMin, yMin, xMax, yMax);
 			}
+
 		} catch (Exception e) {
+			log(false);
+			log(e.getMessage(), false);
+			saveError = true;
 			JOptionPane.showMessageDialog(errorPanel, e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
 			e.printStackTrace();
 		}
@@ -1576,16 +1699,6 @@ public class Main {
 		return option;
 	}
 
-	// converts pixel into coordinates
-	public static double[] pix2koord(double aktRow, double aktColumn, double kachelHeight, double kachelWidth) {
-		double xMin3 = xMin2 + (aktColumn - subsetStartColumn) / factorWidth;
-		double yMin3 = yMin2 - (aktRow + kachelHeight - subsetStartRow) / factorHeight + subsetHeightKoord;
-		double xMax3 = xMin2 + (aktColumn + kachelWidth - subsetStartColumn) / factorWidth;
-		double yMax3 = yMin2 - (aktRow - subsetStartRow) / factorHeight + subsetHeightKoord;
-		double[] result = { xMin3, yMin3, xMax3, yMax3 };
-		return result;
-	}
-
 	// converts s to s/m/h
 	public static String s2t(long sec) {
 		int days = (int) (sec / 86400);
@@ -1605,7 +1718,12 @@ public class Main {
 		return seconds + "s";
 	}
 
-	// methods for console output
+	// receives whether to cancel the export or not
+	public static void setExpCancel(boolean yesNo) {
+		expCancel = yesNo;
+	}
+
+	// method for console output
 	public static void log(String str, boolean sub) {
 		if (sub) {
 			console.append("\n       -- " + str + "... ");
@@ -1616,6 +1734,7 @@ public class Main {
 		console.setCaretPosition(console.getDocument().getLength());
 	}
 
+	// method for console output
 	public static void log(boolean ok) {
 		if (ok) {
 			console.append("OK");
